@@ -25,3 +25,4 @@ export class CreatePostDTO {
   @ApiProperty({ description: '访问权限'})
   accessLevel?: number;
 }
+

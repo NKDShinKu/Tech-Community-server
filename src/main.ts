@@ -8,8 +8,8 @@ async function bootstrap() {
   app.use(cookieParser() as any);
   // 配置CORS
   app.enableCors({
-    origin: ['http://localhost:5173', 'https://achamster.live'], // 替换为您的前端URL
-    credentials: true, // 允许携带凭证(cookies)
+    origin: ['http://localhost:5173', 'https://achamster.live'],
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
   });
@@ -24,6 +24,6 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
 
-  await app.listen(process.env.PORT ?? 9080);
+  await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

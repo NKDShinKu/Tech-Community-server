@@ -13,6 +13,7 @@ import { WebauthnService } from './features/webauthn/webauthn.service';
 import { Authenticator } from './entity/authenticator.entity';
 import { User } from './entity/user.entity';
 import { WebauthnModule } from './features/webauthn/webauthn.module';
+import { CateModule } from './features/cate/cate.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { WebauthnModule } from './features/webauthn/webauthn.module';
     TypeOrmModule.forFeature([User, Authenticator]),
     OssArchiveModule,
     WebauthnModule,
+    CateModule,
   ],
   controllers: [AppController],
   providers: [

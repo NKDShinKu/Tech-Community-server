@@ -71,9 +71,7 @@ export class AuthController {
   @Get('status')
   @AccessControl(AccessLevel.OPTIONAL_AUTH)
   checkAuth(@Req() request: RequestWithUser) {
-    // 从请求中获取用户信息（由AccessControlGuard设置）
     const user = request[REQUEST_USER_KEY];
-
     if (user) {
       return {
         userId: request[REQUEST_USER_KEY]?.sub,
