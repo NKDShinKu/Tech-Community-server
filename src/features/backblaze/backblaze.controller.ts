@@ -2,6 +2,7 @@ import { Controller, Post, Get, Delete, Param, UploadedFile, UseInterceptors } f
 import { FileInterceptor } from '@nestjs/platform-express';
 import { BackblazeService, B2FileInfo } from './backblaze.service';
 import { Public } from '../../common/decorators/public.decorator';
+import { AccessControl, AccessLevel } from '../../common/decorators/access-controll.decorator';
 
 // 定义上传文件的接口
 interface UploadedFileData {
@@ -18,8 +19,15 @@ export class BackblazeController {
 
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
-  async uploadFile(@UploadedFile() file: UploadedFileData): Promise<B2FileInfo> {
-    const fileName = `community/${file.originalname}`;
+  @AccessControl(AccessLevel.PUBLIC)
+  async uploadFile(@UploadedFile() file: UploadedFileData): Promise<B2FileInfo | { video: B2FileInfo; thumbnail: B2FileInfo }> {
+    const fileName = `travel/${file.originalname}`;
+
+    // 判断是否为视频文件
+    const videoMimeTypes = ['video/mp4', 'video/mkv', 'video/avi', 'video/mov'];
+    if (videoMimeTypes.includes(file.mimetype)) {
+      return await this.b2Service.uploadVideo(fileName, file.buffer, file.mimetype);
+    }
 
     // 根据文件大小选择普通上传或大文件上传
     if (file.buffer.length > 5 * 1024 * 1024) { // 5MB
@@ -55,3 +63,4 @@ export class BackblazeController {
     return { success: true };
   }
 }
+

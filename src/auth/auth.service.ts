@@ -7,9 +7,9 @@ import { User } from '../entity/user.entity';
 import { HashingService } from './hashing.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ActiveUserData } from './interface/active-user-data.interface';
-import { Response } from 'express';
 import jwtConfig from '../config/jwt.config';
 import { ConfigType } from '@nestjs/config';
+import { RefreshToken } from '../entity/refresh-tokens.entity';
 
 @Injectable()
 export class AuthService {
@@ -17,6 +17,8 @@ export class AuthService {
     private readonly usersService: UserService,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(RefreshToken)
+    private readonly refreshTokenRepository: Repository<RefreshToken>,
     private readonly jwtService: JwtService,
     private readonly hashingService: HashingService,
     @Inject(jwtConfig.KEY)
@@ -24,14 +26,18 @@ export class AuthService {
   ) {}
 
   async signUp(user: SignUpDTO) {
-    const { email, username, password } = user;
+    const { email, username, password, avatar } = user;
 
     const emailValue = email ?? '';
     const usernameValue = username ?? '';
     const existingEmail = await this.usersService.findByEmail(emailValue);
     const existingUsername = await this.usersService.findByUsername(usernameValue);
     if(existingEmail || existingUsername) {
-      throw new UnauthorizedException("该用户已经被注册");
+      throw new UnauthorizedException({
+        message: '该用户已经被注册',
+        errorCode: 'USER_ALREADY_REGISTERED',
+      }
+      );
     }
 
     // 获取用户组实体
@@ -48,53 +54,53 @@ export class AuthService {
     const newUser = this.userRepository.create({
       email,
       username,
+      avatar,
       password: hashedPassword,
       userGroup: userGroup,
-      userGroupId: userGroup.id
+      userGroupId: userGroup.id,
     });
 
     return this.userRepository.save(newUser);
   }
 
-  async signIn(user: SignInDTO, response: Response) {
+  async signIn(user: SignInDTO) {
     const { email, username, password } = user;
     const emailValue = email ?? '';
     const usernameValue = username ?? '';
-    const existingUser = await this.usersService.findByEmail(emailValue) || await this.usersService.findByUsername(usernameValue);
+    const existingUser = await this.usersService.findUserByEmailOrUsername(emailValue, usernameValue);
+
     if (!existingUser) {
-      throw new UnauthorizedException('用户不存在');
+      throw new UnauthorizedException('用户名或密码错误');
     }
+
     const isEqual = await this.hashingService.compare(password, existingUser.password);
     if (!isEqual) {
-      throw new UnauthorizedException('密码错误');
+      throw new UnauthorizedException('用户名或密码错误');
+    }
+
+    const userWithGroup = await this.usersService.findUserById(existingUser.id);
+    if (!userWithGroup) {
+      throw new UnauthorizedException('用户组信息未找到');
     }
 
     const { access_token, refresh_token } = await this.generateTokens(existingUser);
-    response.cookie('access_token', access_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      // sameSite: 'strict',
-      maxAge: this.jwtConfiguration.accessTokenTtl,
-      expires: new Date(Date.now() +  60 * 60 * 1000)
-    })
-
-    response.cookie('refresh_token', refresh_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      expires: new Date(Date.now() + this.jwtConfiguration.refreshTokenTtl * 1000)
-    });
 
     return {
       message: '登录成功',
-      user: {
-        id: existingUser.id,
-        username: existingUser.username,
-        email: existingUser.email
+      data: {
+        token: access_token,           // 改为直接返回token
+        refreshToken: refresh_token,   // 改为直接返回refresh token
+        userInfo: {
+          id: userWithGroup.id,
+          username: userWithGroup.username,
+          email: userWithGroup.email,
+          userGroup: userWithGroup.userGroup?.name || '未分组' // 返回用户组信息
+        }
       }
     };
   }
 
-  async generateTokens(user: User) {
+  async generateJwtTokens(user: User) {
     const userData: Partial<ActiveUserData> = {
       name: user.username
     };
@@ -104,20 +110,22 @@ export class AuthService {
       userData.userGroup = user.userGroup.name;
     }
 
-    const [access_token, refresh_token] = await Promise.all([
+    return await
       this.signToken<Partial<ActiveUserData>>(
         user.id,
         userData,
         this.jwtConfiguration.accessTokenTtl,
-      ),
-      this.signToken(
-        user.id,
-        {},
-        this.jwtConfiguration.refreshTokenTtl
-      )
-    ]);
+      );
+  }
 
-    return { access_token, refresh_token };
+  async generateRefreshToken(user: User, userAgent: string) {
+    const refreshToken = new RefreshToken();
+    refreshToken.token = crypto.randomUUID();
+    refreshToken.user = user;
+    refreshToken.expiresAt = new Date(Date.now() + this.jwtConfiguration.refreshTokenTtl * 1000)
+    refreshToken.deviceInfo = userAgent;
+
+    return await this.refreshTokenRepository.save(refreshToken);
   }
 
   private async signToken<T>(userId: number, payload?: T, expiresIn?: number) {
@@ -135,88 +143,83 @@ export class AuthService {
     )
   }
 
-  async refreshTokens(refreshToken: string, response: Response) {
+  async refreshTokens(refreshToken: string) {
     try {
       // 验证刷新令牌
-      const payload = await this.jwtService.verifyAsync<{ sub: number }>(
-        refreshToken,
-        {
-          secret: this.jwtConfiguration.secret,
-          audience: this.jwtConfiguration.audience,
-          issuer: this.jwtConfiguration.issuer,
-        }
-      );
+      const storedToken = await this.refreshTokenRepository.findOne({
+        where: { token: refreshToken },
+        relations: ['user']
+      });
 
-      const user = await this.usersService.findUserById(payload.sub);
-      if (!user) {
-        console.log('用户不存在');
-        throw new UnauthorizedException('用户不存在');
+      if (!storedToken || storedToken.expiresAt < new Date()) {
+        throw new UnauthorizedException('无效或过期的刷新令牌');
       }
 
-      // 生成新的令牌
-      const { access_token, refresh_token } = await this.generateTokens(user);
+      const { access_token, refresh_token } = await this.generateTokens(storedToken.user);
 
-      // 设置新的cookie
-      response.cookie('access_token', access_token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        expires: new Date(Date.now() + this.jwtConfiguration.accessTokenTtl * 1000)
-      });
+      // 删除旧的刷新令牌
+      await this.refreshTokenRepository.remove(storedToken);
 
-      response.cookie('refresh_token', refresh_token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        expires: new Date(Date.now() + this.jwtConfiguration.refreshTokenTtl * 1000)
-      });
+      // response.cookie('access_token', access_token, {
+      //   httpOnly: true,
+      //   secure: process.env.NODE_ENV === 'production',
+      //   expires: new Date(Date.now() + this.jwtConfiguration.accessTokenTtl * 1000)
+      // });
+      //
+      // response.cookie('refresh_token', refresh_token, {
+      //   httpOnly: true,
+      //   secure: process.env.NODE_ENV === 'production',
+      //   expires: new Date(Date.now() + this.jwtConfiguration.refreshTokenTtl * 1000)
+      // });
 
       return {
         message: '令牌刷新成功',
         user: {
-          id: user.id,
-          username: user.username,
-          email: user.email
-        }
+          id: storedToken.user.id,
+          username: storedToken.user.username,
+          email: storedToken.user.email
+        },
+        token: access_token,
+        refreshToken: refresh_token,
       };
     } catch (_error) {
+      console.log(_error);
       throw new UnauthorizedException('无效的刷新令牌');
     }
   }
 
-
-  async generateTokensForUser(userId: number, response: Response) {
-    // 查找用户
+  async generateTokensForUser(userId: number) {
     const user = await this.usersService.findUserById(userId);
     if (!user) {
       throw new UnauthorizedException('用户不存在');
     }
 
-    // 使用现有的generateTokens方法生成令牌
     const { access_token, refresh_token } = await this.generateTokens(user);
 
-    // 设置cookie，复用你现有的cookie配置
-    response.cookie('access_token', access_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: this.jwtConfiguration.accessTokenTtl,
-      expires: new Date(Date.now() + 60 * 60 * 1000)
-    });
-
-    response.cookie('refresh_token', refresh_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      expires: new Date(Date.now() + this.jwtConfiguration.refreshTokenTtl * 1000)
-    });
-
-    // 返回用户信息
     return {
-      message: 'Passkey 登录成功',
+      message: '令牌生成成功',
       user: {
         id: user.id,
         username: user.username,
-        email: user.email
-      }
+        email: user.email,
+        userGroup: user.userGroup?.name || '未分组' // 返回用户组信息
+      },
+      token: access_token,
+      refreshToken: refresh_token,
     };
   }
 
+  // 新增 generateTokens 方法
+  private async generateTokens(user: User) {
+    const [access_token, refreshToken] = await Promise.all([
+      this.generateJwtTokens(user),
+      this.generateRefreshToken(user, 'default-user-agent') // 这里可以根据需要传入实际的 userAgent
+    ]);
+
+    return {
+      access_token,
+      refresh_token: refreshToken.token
+    };
+  }
 
 }

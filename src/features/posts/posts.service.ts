@@ -1,9 +1,19 @@
-import { ForbiddenException, Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { PostEntity } from '../../entity/posts.entity';
-import { Repository } from 'typeorm';
-import { CreatePostDTO } from './posts.type';
-import { LessThanOrEqual } from 'typeorm';
+import { Repository, Like, Raw } from 'typeorm';
+import { CreatePostDTO, UpdatePostAuditDTO, PostResponse, PaginatedResponse } from './posts.type';
+import {
+  ApprovedLine,
+  PendingLine,
+  RejectedLine,
+  mergeLines,
+  removeLine,
+  includeSomeLine,
+  DeletedLine, VideoLine
+} from '../../common/lib/quick-tag';
+import { UserFavoritesEntity } from '../../entity/user-favorites.entity';
+import { User } from '../../entity/user.entity';
 
 @Injectable()
 export class PostsService {
@@ -11,36 +21,37 @@ export class PostsService {
     @InjectRepository(PostEntity)
     private readonly postsRepository: Repository<PostEntity>,
   ) {}
+
   async createPost(post: CreatePostDTO) {
-    // 检查是否存在相同ID的文章
     if (post.id) {
       const existingPost = await this.postsRepository.findOne({
         where: { id: post.id }
       });
 
       if (existingPost) {
-        // 如果存在，执行更新操作
         return this.postsRepository.update(post.id, {
           title: post.title,
-          description: post.description,
           content: JSON.stringify(post.content),
-          cover: post.cover || '/img/cover1.png',
-          accessLevel: post.accessLevel || 0,
-          quick_tag: post.quick_tag,
-          common_tag: Array.isArray(post.common_tag) ? JSON.stringify(post.common_tag) : null,
+          images: post.images ? JSON.stringify(post.images) : '[]',
+          video: post.video,
+          authorId: post.authorId,
+          quick_tag: mergeLines(existingPost.quick_tag, PendingLine),
+          coverImage: post.coverImage || (post.images && post?.images[0]) || '',
         });
       }
     }
 
-    // 没有指定ID或ID不存在，创建新记录
     const obj = new PostEntity();
     obj.title = post.title;
-    obj.description = post.description;
     obj.content = JSON.stringify(post.content);
-    obj.cover = post.cover || '/img/cover1.png';
-    obj.accessLevel = post.accessLevel || 0;
-    obj.quick_tag = post.quick_tag;
-    obj.common_tag = Array.isArray(post.common_tag) ? JSON.stringify(post.common_tag) : null;
+    obj.images = post.images ? JSON.stringify(post.images) : '[]';
+    obj.video = post.video || '';
+    obj.authorId = post.authorId;
+    obj.quick_tag = PendingLine;
+    obj.coverImage = post.coverImage || '';
+    if(obj.video) {
+      mergeLines(obj.quick_tag, VideoLine);
+    }
 
     if (post.id) {
       obj.id = post.id;
@@ -49,18 +60,243 @@ export class PostsService {
     return await this.postsRepository.save(obj);
   }
 
-  async getAllPosts(userGroup: number = 0) {
-    const posts = await this.postsRepository.find({
-      where: { accessLevel: LessThanOrEqual(userGroup) },
+  async getAllPosts(page: number = 1, limit: number = 10): Promise<PaginatedResponse<{
+    id: string;
+    title: string;
+    date: string;
+    coverImage: string;
+    quickTag: number;
+    rejectReason: string;
+    author: { avatar: string | undefined; username: string }
+  }>> {
+    const [posts, total] = await this.postsRepository.findAndCount({
+      relations: ['author'],
+      select: {
+        id: true,
+        title: true,
+        created_time: true,
+        coverImage: true,
+        quick_tag: true,
+        rejectReason: true,
+        author: {
+          id: true,
+          username: true,
+          avatar: true
+        }
+      },
+      order: {
+        created_time: 'DESC',
+      },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      items: posts.map(post => ({
+        id: post.id.toString(),
+        title: post.title,
+        date: post.created_time.toISOString(),
+        coverImage: post.coverImage,
+        quickTag: post.quick_tag,
+        rejectReason: post.rejectReason,
+        author: {
+          avatar: post.author.avatar,
+          username: post.author.username
+        }
+      })),
+      total,
+      page,
+      totalPages,
+      hasMore: page < totalPages
+    };
+  }
+
+  async getApprovedPosts(page: number = 1, limit: number = 10): Promise<PaginatedResponse<{
+    id: string;
+    title: string;
+    date: string;
+    coverImage: string;
+    quickTag: number;
+    author: { avatar: string | undefined; username: string };
+  }>> {
+    const [posts, total] = await this.postsRepository.findAndCount({
+      where: {
+        quick_tag: Raw(alias => `${alias} & ${ApprovedLine} = ${ApprovedLine}`)
+      },
+      relations: ['author'],
       select: {
         id: true,
         title: true,
         created_time: true,
         quick_tag: true,
-        common_tag: true,
-        description: true,
-        cover: true,
-        accessLevel: true,
+        coverImage: true,
+        author: {
+          avatar: true,
+          username: true
+        }
+      },
+      order: {
+        created_time: 'DESC',
+      },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      items: posts.map(post => ({
+        id: post.id.toString(),
+        title: post.title,
+        date: post.created_time.toISOString(),
+        coverImage: post.coverImage,
+        quickTag: post.quick_tag,
+        author: {
+          avatar: post.author.avatar,
+          username: post.author.username
+        }
+      })),
+      total,
+      page,
+      totalPages,
+      hasMore: page < totalPages
+    };
+  }
+
+  async getRejectedPosts(page: number = 1, limit: number = 10): Promise<PaginatedResponse<{
+    id: string;
+    title: string;
+    date: string;
+    coverImage: string;
+    quickTag: number;
+    author: { avatar: string | undefined; username: string }
+  }>> {
+    const [posts, total] = await this.postsRepository.findAndCount({
+      where: {
+        quick_tag: Raw(alias => `${alias} & ${RejectedLine} = ${RejectedLine}`)
+      },
+      relations: ['author'],
+      select: {
+        id: true,
+        title: true,
+        created_time: true,
+        quick_tag: true,
+        coverImage: true,
+        author: {
+          avatar: true,
+          username: true
+        }
+      },
+      order: {
+        created_time: 'DESC',
+      },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      items: posts.map(post => ({
+        id: post.id.toString(),
+        title: post.title,
+        date: post.created_time.toISOString(),
+        coverImage: post.coverImage,
+        quickTag: post.quick_tag,
+        author: {
+          avatar: post.author.avatar,
+          username: post.author.username
+        }
+      })),
+      total,
+      page,
+      totalPages,
+      hasMore: page < totalPages
+    };
+  }
+
+  async getPendingPosts(page: number = 1, limit: number = 10): Promise<PaginatedResponse<{
+    id: string;
+    title: string;
+    date: string;
+    coverImage: string;
+    quickTag: number;
+    author: { avatar: string | undefined; username: string }
+  }>> {
+    const [posts, total] = await this.postsRepository.findAndCount({
+      where: {
+        quick_tag: Raw(alias => `${alias} & ${PendingLine} = ${PendingLine}`)
+      },
+      relations: ['author'],
+      select: {
+        id: true,
+        title: true,
+        created_time: true,
+        quick_tag: true,
+        coverImage: true,
+        author: {
+          avatar: true,
+          username: true
+        }
+      },
+      order: {
+        created_time: 'DESC',
+      },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      items: posts.map(post => ({
+        id: post.id.toString(),
+        title: post.title,
+        date: post.created_time.toISOString(),
+        coverImage: post.coverImage,
+        quickTag: post.quick_tag,
+        author: {
+          avatar: post.author.avatar,
+          username: post.author.username
+        }
+      })),
+      total,
+      page,
+      totalPages,
+      hasMore: page < totalPages
+    };
+  }
+
+  async getUserPosts(userId: number): Promise<{
+    id: string;
+    title: string;
+    date: string;
+    content: Record<string, unknown>;
+    images: string[];
+    quickTag: number;
+    video: string;
+    rejectReason: string;
+    coverImage: string
+  }[]> {
+    const posts = await this.postsRepository.find({
+      where: { authorId: userId },
+      relations: ['author'],
+      select: {
+        id: true,
+        title: true,
+        created_time: true,
+        content: true,
+        images: true,
+        video: true,
+        quick_tag: true,
+        rejectReason: true,
+        coverImage: true,
+        // author: {
+        //   id: true,
+        //   username: true
+        // }
       },
       order: {
         created_time: 'DESC',
@@ -71,25 +307,39 @@ export class PostsService {
       id: post.id.toString(),
       title: post.title,
       date: post.created_time.toISOString(),
-      cover: post.cover,
-      quick_tag: post.quick_tag,
-      common_tag: post.common_tag ? (JSON.parse(post.common_tag) as string[]) : [],
-      accessLevel: post.accessLevel,
+      content: JSON.parse(post.content) as Record<string, unknown>,
+      images: post.images ? (JSON.parse(post.images) as string[]) : [],
+      quickTag: post.quick_tag,
+      video: post.video,
+      rejectReason: post.rejectReason,
+      coverImage: post.coverImage,
     }));
   }
 
-  async getPostById(id: number, userGroup: number = 0) {
+  async getPostById(id: number, currentUserId?: number): Promise<PostResponse | null> {
     const post = await this.postsRepository.findOne({
       where: { id },
+      relations: ['author', 'author.userGroup'],
       select: {
         id: true,
         title: true,
         created_time: true,
-        quick_tag: true,
-        common_tag: true,
         content: true,
-        accessLevel: true,
-        cover: true,
+        images: true,
+        video: true,
+        quick_tag: true,
+        rejectReason: true,
+        authorId: true,
+        coverImage: true,
+        author: {
+          id: true,
+          username: true,
+          avatar: true,
+          userGroup: {
+            id: true,
+            name: true
+          }
+        }
       },
     });
 
@@ -97,28 +347,46 @@ export class PostsService {
       return null;
     }
 
-    if (post.accessLevel > userGroup) {
-      throw new ForbiddenException('没有权限访问此内容');
+    // 添加用户组权限判断
+    const currentUser = currentUserId ? await this.postsRepository.manager.findOne(User, {
+      where: { id: currentUserId },
+      relations: ['userGroup'],
+    }) : null;
+
+    const isAdminOrReviewer = currentUser?.userGroup?.name === 'admin' || currentUser?.userGroup?.name === 'reviewer';
+
+    // ��章未通过审核，且不是作者本人或管理员/审核员，则无权查看
+    if (!includeSomeLine(post.quick_tag, ApprovedLine) &&
+      post.authorId !== currentUserId &&
+      !isAdminOrReviewer) {
+      console.log('没有权限查看该文章');
+      return null;
+    }
+
+    let isFavorited = false;
+    if (currentUserId) {
+      const favoriteCount = await this.postsRepository.manager.count(UserFavoritesEntity, {
+        where: { userId: currentUserId.toString(), postId: id.toString() },
+      });
+      isFavorited = favoriteCount > 0;
     }
 
     return {
+      id: post.id.toString(),
       title: post.title,
       date: post.created_time.toISOString(),
+      content: JSON.parse(post.content) as Record<string, unknown>,
+      images: post.images ? JSON.parse(post.images) as string[] : [],
+      video: post.video,
+      rejectReason: post.rejectReason,
+      coverImage: post.coverImage,
       quick_tag: post.quick_tag,
-      common_tag: post.common_tag ? (JSON.parse(post.common_tag) as string[]) : [],
-      cover: post.cover,
-      content: post.content,
-    };
-  }
-
-  async getPostWithAccessLevel(id: number) {
-    return await this.postsRepository.findOne({
-      where: { id },
-      select: {
-        id: true,
-        accessLevel: true,
+      author: {
+        avatar: post.author.avatar,
+        username: post.author.username
       },
-    });
+      isFavorited,
+    };
   }
 
   async deletePost(id: number) {
@@ -128,4 +396,141 @@ export class PostsService {
     }
     return await this.postsRepository.delete(id);
   }
+
+  async updatePostAuditStatus(id: number, auditData: UpdatePostAuditDTO) {
+    const post = await this.postsRepository.findOne({ where: { id } });
+    if (!post) {
+      throw new InternalServerErrorException("没有找到该文章");
+    }
+
+    if (includeSomeLine(auditData.auditStatus, RejectedLine) && !auditData.rejectReason) {
+      throw new InternalServerErrorException("拒绝文章时必须提供拒绝原因");
+    }
+
+    let updatedQuickTag = post.quick_tag;
+    if (includeSomeLine(updatedQuickTag, ApprovedLine)) {
+      updatedQuickTag = removeLine(updatedQuickTag, ApprovedLine);
+    }
+    if (includeSomeLine(updatedQuickTag, PendingLine)) {
+      updatedQuickTag = removeLine(updatedQuickTag, PendingLine);
+    }
+    if (includeSomeLine(updatedQuickTag, RejectedLine)) {
+      updatedQuickTag = removeLine(updatedQuickTag, RejectedLine);
+    }
+    if(includeSomeLine(updatedQuickTag, DeletedLine)) {
+      updatedQuickTag = removeLine(updatedQuickTag, DeletedLine);
+    }
+
+    updatedQuickTag = mergeLines(updatedQuickTag, auditData.auditStatus);
+
+    return await this.postsRepository.update(id, {
+      quick_tag: updatedQuickTag,
+      rejectReason: auditData.rejectReason,
+    });
+  }
+
+  async getPostsByUsername(username: string): Promise<PostResponse[]> {
+    const posts = await this.postsRepository.find({
+      where: {
+        author: {
+          username: Like(`%${username}%`)
+        }
+      },
+      relations: ['author'],
+      select: {
+        id: true,
+        title: true,
+        created_time: true,
+        images: true,
+        video: true,
+        quick_tag: true,
+        author: {
+          id: true,
+          username: true
+        }
+      },
+      order: {
+        created_time: 'DESC',
+      },
+    });
+
+    return posts.map(post => ({
+      id: post.id.toString(),
+      title: post.title,
+      date: post.created_time.toISOString(),
+      images: post.images ? (JSON.parse(post.images) as string[]) : [],
+      video: post.video,
+      author: {
+        avatar: post.author.avatar,
+        username: post.author.username
+      }
+    }));
+  }
+
+  async searchApprovedPosts(keyword: string, page: number = 1, limit: number = 10): Promise<PaginatedResponse<{
+    id: string;
+    title: string;
+    date: string;
+    coverImage: string;
+    quickTag: number;
+    author: { avatar: string | undefined; username: string };
+  }>> {
+    const [posts, total] = await this.postsRepository.findAndCount({
+      where: [
+        {
+          quick_tag: Raw(alias => `${alias} & ${ApprovedLine} = ${ApprovedLine}`),
+          title: Like(`%${keyword}%`),
+        },
+        {
+          quick_tag: Raw(alias => `${alias} & ${ApprovedLine} = ${ApprovedLine}`),
+          content: Like(`%${keyword}%`),
+        },
+        {
+          quick_tag: Raw(alias => `${alias} & ${ApprovedLine} = ${ApprovedLine}`),
+        },
+        {
+          quick_tag: Raw(alias => `${alias} & ${ApprovedLine} = ${ApprovedLine}`),
+          author: { username: Like(`%${keyword}%`) },
+        },
+      ],
+      relations: ['author'],
+      select: {
+        id: true,
+        title: true,
+        created_time: true,
+        quick_tag: true,
+        coverImage: true,
+        author: {
+          avatar: true,
+          username: true,
+        },
+      },
+      order: {
+        created_time: 'DESC',
+      },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      items: posts.map(post => ({
+        id: post.id.toString(),
+        title: post.title,
+        date: post.created_time.toISOString(),
+        coverImage: post.coverImage,
+        quickTag: post.quick_tag,
+        author: {
+          avatar: post.author.avatar,
+          username: post.author.username,
+        },
+      })),
+      total,
+      page,
+      totalPages,
+      hasMore: page < totalPages,
+    };
+  }
 }
+

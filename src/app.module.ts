@@ -9,11 +9,7 @@ import { UserModule } from './features/user/user.module';
 import { BackblazeModule } from './features/backblaze/backblaze.module';
 import { JwtModule } from '@nestjs/jwt';
 import { OssArchiveModule } from './features/oss-archive/oss-archive.module';
-import { WebauthnService } from './features/webauthn/webauthn.service';
-import { Authenticator } from './entity/authenticator.entity';
 import { User } from './entity/user.entity';
-import { WebauthnModule } from './features/webauthn/webauthn.module';
-import { CateModule } from './features/cate/cate.module';
 
 @Module({
   imports: [
@@ -25,15 +21,12 @@ import { CateModule } from './features/cate/cate.module';
     JwtModule.register({
       global: true,
     }),
-    TypeOrmModule.forFeature([User, Authenticator]),
+    TypeOrmModule.forFeature([User]),
     OssArchiveModule,
-    WebauthnModule,
-    CateModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
-    WebauthnService,
   ],
 })
 export class AppModule {}

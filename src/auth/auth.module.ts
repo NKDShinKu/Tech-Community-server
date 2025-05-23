@@ -10,13 +10,12 @@ import { ConfigModule } from '@nestjs/config';
 import jwtConfig from '../config/jwt.config';
 import { APP_GUARD } from '@nestjs/core';
 import { AccessControlGuard } from './guards/access-controll.guard';
-import { WebauthnModule } from '../features/webauthn/webauthn.module';
+import { RefreshToken } from '../entity/refresh-tokens.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User,RefreshToken]),
     UserModule,
-    WebauthnModule,
     ConfigModule.forFeature(jwtConfig),
     JwtModule.registerAsync(jwtConfig.asProvider()),
   ],
