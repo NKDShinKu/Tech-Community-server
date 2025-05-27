@@ -4,6 +4,9 @@ import { User } from '../../entity/user.entity';
 import { UserGroup } from '../../entity/usergroup.entity';
 import { Repository } from 'typeorm';
 
+import { Buffer } from 'node:buffer';
+import { genSalt, hash } from 'bcrypt'
+
 @Injectable()
 export class UserService {
   constructor(
@@ -11,7 +14,7 @@ export class UserService {
     private readonly userRepository: Repository<User>,
 
     @InjectRepository(UserGroup)
-    private readonly userGroupRepository: Repository<UserGroup>
+    private readonly userGroupRepository: Repository<UserGroup>,
   ) {}
 
   async findByEmail(email: string): Promise<User | null> {
@@ -89,5 +92,27 @@ export class UserService {
         { username },
       ],
     });
+  }
+
+
+  async updateUserInfo(id: number, updateData: Partial<User>): Promise<User> {
+    const user = await this.findUserById(id);
+    if (!user) {
+      throw new Error('用户不存在');
+    }
+
+    if(updateData.password){
+      updateData.password = await this.hash(updateData.password);
+    }
+
+    // 更新用户信息
+    Object.assign(user, updateData);
+
+    return this.userRepository.save(user);
+  }
+
+  async hash(data: string | Buffer): Promise<string> {
+    const salt = await genSalt()
+    return hash(data, salt)
   }
 }

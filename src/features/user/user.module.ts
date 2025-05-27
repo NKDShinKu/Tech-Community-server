@@ -14,7 +14,7 @@ import { UserFavoritesEntity } from '../../entity/user-favorites.entity';
 @Module({
   imports: [
     TypeOrmModule.forFeature([UserGroup, User, UserFavoritesEntity]),
-    forwardRef(() => PostsModule), // 使用 forwardRef 解决循环依赖
+    forwardRef(() => PostsModule),
   ],
   controllers: [UserController, UserHistoryController, UserFavoritesController],
   providers: [UserService, UserHistoryService, UserFavoritesService],

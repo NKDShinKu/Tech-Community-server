@@ -1,7 +1,8 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { UserService } from './user.service';
 import { UserGroups } from '../../common/decorators/user-group.decorator';
 import { AccessControl, AccessLevel } from '../../common/decorators/access-controll.decorator';
+import { User } from '../../entity/user.entity';
 
 @Controller('/api/user')
 export class UserController {
@@ -25,4 +26,9 @@ export class UserController {
     return await this.userService.findUserBaseInfo(id);
   }
 
+  @Post('update-info')
+  @AccessControl(AccessLevel.REQUIRED_AUTH)
+  async updateUserInfo(@Query('id') id: number, @Body() userInfo :Partial<User>) {
+    return await this.userService.updateUserInfo(id, userInfo);
+  }
 }
