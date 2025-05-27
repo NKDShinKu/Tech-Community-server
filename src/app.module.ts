@@ -10,6 +10,7 @@ import { BackblazeModule } from './features/backblaze/backblaze.module';
 import { JwtModule } from '@nestjs/jwt';
 import { OssArchiveModule } from './features/oss-archive/oss-archive.module';
 import { User } from './entity/user.entity';
+import { CateModule } from './features/cate/cate.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { User } from './entity/user.entity';
     }),
     TypeOrmModule.forFeature([User]),
     OssArchiveModule,
+    CateModule,
   ],
   controllers: [AppController],
   providers: [

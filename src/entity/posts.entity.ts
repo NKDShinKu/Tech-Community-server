@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from './user.entity';
+import { CategoryEntity as Category } from './category.entity';
 
 @Entity('posts')
 export class PostEntity {
@@ -11,12 +12,6 @@ export class PostEntity {
 
   @Column({ type: 'nvarchar', length: 'max', nullable: true })
   description: string;
-
-  @Column({ type: 'nvarchar', length: 'max', nullable: true })
-  images: string;
-
-  @Column({ type: 'nvarchar', length: 500, nullable: true })
-  video: string;
 
   @Column({ type: 'nvarchar', length: 500, nullable: true })
   coverImage: string;
@@ -38,6 +33,13 @@ export class PostEntity {
   @ManyToOne(() => User)
   @JoinColumn({ name: 'authorId' })
   author: User;
+
+  @ManyToOne(() => Category)
+  @JoinColumn({ name: 'categoryId' })
+  category: Category;
+
+  @Column()
+  categoryId: number;
 
   @Column({ nullable: false })
   authorId: number;

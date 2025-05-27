@@ -14,17 +14,11 @@ export class CreatePostDTO {
   @ApiProperty({ description: '文章封面图', required: false })
   coverImage?: string;
 
-  @ApiProperty({ description: '图片数组', required: false })
-  images?: string[];
-
-  @ApiProperty({ description: '视频链接', required: false })
-  video?: string;
-
   @ApiProperty({ description: '作者ID' })
   authorId: number;
 
-  @ApiProperty({ description: '位置信息', required: false })
-  location?: string;
+  @ApiProperty({ description: '分类ID' })
+  category: number;
 }
 
 export class UpdatePostAuditDTO {
@@ -50,13 +44,11 @@ export interface PostResponse {
   title: string;
   date: string;
   content?: Record<string, unknown>;
-  images: string[];
-  video?: string;
   rejectReason?: string;
-  coverImage?: string; // 添加 coverImage 属性
-  quick_tag?: number;  // 添加 quick_tag 属性
-  isFavorited?: boolean; // 添加 isFavorited 属性
-  location?: string; // 添加 location 属性
+  coverImage?: string;
+  quick_tag?: number;
+  isFavorited?: boolean;
+  viewCount?: number;
   author: {
     avatar: string | undefined;
     username: string;

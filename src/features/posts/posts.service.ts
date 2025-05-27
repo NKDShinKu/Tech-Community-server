@@ -10,10 +10,11 @@ import {
   mergeLines,
   removeLine,
   includeSomeLine,
-  DeletedLine, VideoLine
+  DeletedLine,
 } from '../../common/lib/quick-tag';
 import { UserFavoritesEntity } from '../../entity/user-favorites.entity';
 import { User } from '../../entity/user.entity';
+import { CategoryEntity } from '../../entity/category.entity';
 
 @Injectable()
 export class PostsService {
@@ -32,11 +33,9 @@ export class PostsService {
         return this.postsRepository.update(post.id, {
           title: post.title,
           content: JSON.stringify(post.content),
-          images: post.images ? JSON.stringify(post.images) : '[]',
-          video: post.video,
           authorId: post.authorId,
           quick_tag: mergeLines(existingPost.quick_tag, PendingLine),
-          coverImage: post.coverImage || (post.images && post?.images[0]) || '',
+          coverImage: post.coverImage || '',
         });
       }
     }
@@ -44,13 +43,14 @@ export class PostsService {
     const obj = new PostEntity();
     obj.title = post.title;
     obj.content = JSON.stringify(post.content);
-    obj.images = post.images ? JSON.stringify(post.images) : '[]';
-    obj.video = post.video || '';
     obj.authorId = post.authorId;
     obj.quick_tag = PendingLine;
     obj.coverImage = post.coverImage || '';
-    if(obj.video) {
-      mergeLines(obj.quick_tag, VideoLine);
+    // 正确赋值category
+    if (post.category) {
+      const category = new CategoryEntity();
+      category.categoryId = post.category;
+      obj.category = category;
     }
 
     if (post.id) {
@@ -113,19 +113,26 @@ export class PostsService {
     };
   }
 
-  async getApprovedPosts(page: number = 1, limit: number = 10): Promise<PaginatedResponse<{
-    id: string;
-    title: string;
-    date: string;
-    coverImage: string;
-    quickTag: number;
-    author: { avatar: string | undefined; username: string };
-  }>> {
+  async getApprovedPosts(page: number = 1, limit: number = 10): Promise<{
+    items: {
+      id: string;
+      title: string;
+      date: string;
+      coverImage: string;
+      quickTag: number;
+      author: { avatar: string | undefined; username: string };
+      category: CategoryEntity | undefined
+    }[];
+    total: number;
+    page: number;
+    totalPages: number;
+    hasMore: boolean
+  }> {
     const [posts, total] = await this.postsRepository.findAndCount({
       where: {
         quick_tag: Raw(alias => `${alias} & ${ApprovedLine} = ${ApprovedLine}`)
       },
-      relations: ['author'],
+      relations: ['author', 'category'],
       select: {
         id: true,
         title: true,
@@ -136,6 +143,7 @@ export class PostsService {
           avatar: true,
           username: true
         }
+        // 不要写category: true，TypeORM不支持
       },
       order: {
         created_time: 'DESC',
@@ -156,7 +164,8 @@ export class PostsService {
         author: {
           avatar: post.author.avatar,
           username: post.author.username
-        }
+        },
+        category: post.category || undefined
       })),
       total,
       page,
@@ -274,9 +283,7 @@ export class PostsService {
     title: string;
     date: string;
     content: Record<string, unknown>;
-    images: string[];
     quickTag: number;
-    video: string;
     rejectReason: string;
     coverImage: string
   }[]> {
@@ -288,8 +295,6 @@ export class PostsService {
         title: true,
         created_time: true,
         content: true,
-        images: true,
-        video: true,
         quick_tag: true,
         rejectReason: true,
         coverImage: true,
@@ -308,9 +313,7 @@ export class PostsService {
       title: post.title,
       date: post.created_time.toISOString(),
       content: JSON.parse(post.content) as Record<string, unknown>,
-      images: post.images ? (JSON.parse(post.images) as string[]) : [],
       quickTag: post.quick_tag,
-      video: post.video,
       rejectReason: post.rejectReason,
       coverImage: post.coverImage,
     }));
@@ -325,12 +328,11 @@ export class PostsService {
         title: true,
         created_time: true,
         content: true,
-        images: true,
-        video: true,
         quick_tag: true,
         rejectReason: true,
         authorId: true,
         coverImage: true,
+        viewCount: true,
         author: {
           id: true,
           username: true,
@@ -355,7 +357,7 @@ export class PostsService {
 
     const isAdminOrReviewer = currentUser?.userGroup?.name === 'admin' || currentUser?.userGroup?.name === 'reviewer';
 
-    // ��章未通过审核，且不是作者本人或管理员/审核员，则无权查看
+    // 文章未通过审核，且不是作者本人或管理员/审核员，则无权查看
     if (!includeSomeLine(post.quick_tag, ApprovedLine) &&
       post.authorId !== currentUserId &&
       !isAdminOrReviewer) {
@@ -371,16 +373,18 @@ export class PostsService {
       isFavorited = favoriteCount > 0;
     }
 
+    post.viewCount = (post.viewCount || 0) + 1;
+    await this.postsRepository.save(post); // 更新浏览量
+
     return {
       id: post.id.toString(),
       title: post.title,
       date: post.created_time.toISOString(),
       content: JSON.parse(post.content) as Record<string, unknown>,
-      images: post.images ? JSON.parse(post.images) as string[] : [],
-      video: post.video,
       rejectReason: post.rejectReason,
       coverImage: post.coverImage,
       quick_tag: post.quick_tag,
+      viewCount: post.viewCount,
       author: {
         avatar: post.author.avatar,
         username: post.author.username
@@ -404,7 +408,7 @@ export class PostsService {
     }
 
     if (includeSomeLine(auditData.auditStatus, RejectedLine) && !auditData.rejectReason) {
-      throw new InternalServerErrorException("拒绝文章时必须提供拒绝原因");
+      throw new InternalServerErrorException("拒绝文章时必须���供拒绝原因");
     }
 
     let updatedQuickTag = post.quick_tag;
@@ -441,8 +445,6 @@ export class PostsService {
         id: true,
         title: true,
         created_time: true,
-        images: true,
-        video: true,
         quick_tag: true,
         author: {
           id: true,
@@ -458,8 +460,6 @@ export class PostsService {
       id: post.id.toString(),
       title: post.title,
       date: post.created_time.toISOString(),
-      images: post.images ? (JSON.parse(post.images) as string[]) : [],
-      video: post.video,
       author: {
         avatar: post.author.avatar,
         username: post.author.username
@@ -533,4 +533,3 @@ export class PostsService {
     };
   }
 }
-

@@ -14,7 +14,7 @@ export class CateController {
   }
 
   @Post()
-  @AccessControl(AccessLevel.PUBLIC)
+  @AccessControl(AccessLevel.REQUIRED_AUTH)
   async create(@Body('categoryName') categoryName: string) {
     await this.cateService.create(categoryName);
     return { code: 200, message: '分类创建成功' };

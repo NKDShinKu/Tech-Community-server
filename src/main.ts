@@ -3,6 +3,8 @@ import { AppModule } from './app.module';
 import * as cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { HttpExceptionFilter } from './core/filter/http-exception/http-exception.filter';
+import { TransformInterceptor } from './core/interceptor/transform/transform.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -13,6 +15,9 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization']
   });
 
+
+  app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalInterceptors(new TransformInterceptor())
 
   app.use(cookieParser() as any);
   app.use(helmet());
