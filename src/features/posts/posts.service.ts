@@ -139,6 +139,8 @@ export class PostsService {
         created_time: true,
         quick_tag: true,
         coverImage: true,
+        description: true,
+        viewCount: true,
         author: {
           avatar: true,
           username: true
@@ -161,6 +163,8 @@ export class PostsService {
         date: post.created_time.toISOString(),
         coverImage: post.coverImage,
         quickTag: post.quick_tag,
+        description: post.description,
+        viewCount: post.viewCount,
         author: {
           avatar: post.author.avatar,
           username: post.author.username
@@ -193,6 +197,7 @@ export class PostsService {
         created_time: true,
         quick_tag: true,
         coverImage: true,
+        description: true,
         author: {
           avatar: true,
           username: true
@@ -214,6 +219,7 @@ export class PostsService {
         date: post.created_time.toISOString(),
         coverImage: post.coverImage,
         quickTag: post.quick_tag,
+        description: post.description,
         author: {
           avatar: post.author.avatar,
           username: post.author.username
