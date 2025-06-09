@@ -11,6 +11,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { OssArchiveModule } from './features/oss-archive/oss-archive.module';
 import { User } from './entity/user.entity';
 import { CateModule } from './features/cate/cate.module';
+import { CommentsModule } from './features/comments/comments.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { CateModule } from './features/cate/cate.module';
     TypeOrmModule.forFeature([User]),
     OssArchiveModule,
     CateModule,
+    CommentsModule,
   ],
   controllers: [AppController],
   providers: [
