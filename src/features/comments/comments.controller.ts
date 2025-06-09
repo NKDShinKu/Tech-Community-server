@@ -3,7 +3,7 @@ import { AccessControl, AccessLevel } from '../../common/decorators/access-contr
 import { CommentsService } from './comments.service';
 import { CreateCommentDTO, PaginationQuery } from './comments.type';
 
-@Controller('comments')
+@Controller('/api/comments')
 export class CommentsController {
   constructor(
     private readonly commentsService: CommentsService
