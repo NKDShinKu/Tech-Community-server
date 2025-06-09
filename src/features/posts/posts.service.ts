@@ -67,10 +67,11 @@ export class PostsService {
     coverImage: string;
     quickTag: number;
     rejectReason: string;
-    author: { avatar: string | undefined; username: string }
+    author: { avatar: string | undefined; username: string },
+    category: CategoryEntity | undefined
   }>> {
     const [posts, total] = await this.postsRepository.findAndCount({
-      relations: ['author'],
+      relations: ['author', 'category'],
       select: {
         id: true,
         title: true,
@@ -104,7 +105,8 @@ export class PostsService {
         author: {
           avatar: post.author.avatar,
           username: post.author.username
-        }
+        },
+        category: post.category || undefined
       })),
       total,
       page,
@@ -291,11 +293,12 @@ export class PostsService {
     content: Record<string, unknown>;
     quickTag: number;
     rejectReason: string;
-    coverImage: string
+    coverImage: string;
+    category: CategoryEntity | undefined
   }[]> {
     const posts = await this.postsRepository.find({
       where: { authorId: userId },
-      relations: ['author'],
+      relations: ['author', 'category'],
       select: {
         id: true,
         title: true,
@@ -322,13 +325,14 @@ export class PostsService {
       quickTag: post.quick_tag,
       rejectReason: post.rejectReason,
       coverImage: post.coverImage,
+      category: post.category || undefined
     }));
   }
 
   async getPostById(id: number, currentUserId?: number): Promise<PostResponse | null> {
     const post = await this.postsRepository.findOne({
       where: { id },
-      relations: ['author', 'author.userGroup'],
+      relations: ['author', 'author.userGroup', 'category'],
       select: {
         id: true,
         title: true,
@@ -347,7 +351,7 @@ export class PostsService {
             id: true,
             name: true
           }
-        }
+        },
       },
     });
 
@@ -396,6 +400,7 @@ export class PostsService {
         username: post.author.username
       },
       isFavorited,
+      category: post.category || undefined
     };
   }
 

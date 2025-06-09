@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { CategoryEntity } from '../../entity/category.entity';
 // import { AuditStatus } from '../../entity/posts.entity';
 
 export class CreatePostDTO {
@@ -53,4 +54,5 @@ export interface PostResponse {
     avatar: string | undefined;
     username: string;
   };
+  category?: CategoryEntity | undefined
 }
